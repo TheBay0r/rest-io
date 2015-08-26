@@ -10,7 +10,7 @@ class UserResource extends AuthorizedResource {
     getAll: [ROLES.USER, ROLES.SUPER_USER, ROLES.MODERATOR, ROLES.ADMIN],
     getById: [ROLES.USER, ROLES.SUPER_USER, ROLES.MODERATOR, ROLES.ADMIN],
     create: [],
-    update: [ROLES.MODERATOR, ROLES.ADMIN],
+    update: [ROLES.ADMIN],
     del: [ROLES.ADMIN]
   }
 
@@ -34,6 +34,7 @@ class UserResource extends AuthorizedResource {
       name: String
     });
     this.db.model('Role', roleSchema);
+    // create the default roles if they do not exist
   }
 
   setupRoutes() {
@@ -51,32 +52,52 @@ class UserResource extends AuthorizedResource {
 
   create(req: Request, res: Response) {
     req.body.password = auth.encryptPassword(req.body.password);
+    // Make sure the roles can only be added by authorized users
+    // Find the roles and push the role id
     super.create(req, res);
   }
 
   update(req: Request, res: Response) {
     delete req.body.password;
+    // Make sure the roles can only be updated by authorized users
+    // Find the roles and push the role id
     this.isAuthorized(req, this.permissions.update)
+      .then(() => this.db.model('Role').find({}).exec())
+      .then((roles: Array<any>) => {
+        var roleIds = [];
+        if (!!req.body.roles) {
+          req.body.roles.forEach((role: string) => {
+            roles.forEach((dbRole) => {
+              if (dbRole.name === role) {
+                roleIds.push(dbRole._id);
+                return false;
+              }
+            });
+          });
+          req.body.roles = roleIds;
+        }
+      })
       .then(() => this.baseUpdate(req, res),
-        (err) => {
-          if (err.message === 'unauthorized' && this.isSelf(req)) {
-            this.baseUpdate(req, res);
-          } else {
-            this.sendUnauthorized(err, res);
-          }
-        });
+      (err) => {
+        if (err.message === 'unauthorized' && this.isSelf(req)) {
+          delete req.body.roles;
+          this.baseUpdate(req, res);
+        } else {
+          this.sendUnauthorized(err, res);
+        }
+      });
   }
 
   del(req: Request, res: Response) {
     this.isAuthorized(req, this.permissions.del)
       .then(() => this.baseDel(req, res),
-        (err) => {
-          if (err.message === 'unauthorized' && this.isSelf(req)) {
-            this.baseDel(req, res);
-          } else {
-            this.sendUnauthorized(err, res);
-          }
-        });
+      (err) => {
+        if (err.message === 'unauthorized' && this.isSelf(req)) {
+          this.baseDel(req, res);
+        } else {
+          this.sendUnauthorized(err, res);
+        }
+      });
   }
 
   login(req: Request, res: Response) {
